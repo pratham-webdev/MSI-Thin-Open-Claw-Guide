@@ -72,12 +72,12 @@ The RTX 4050's 6GB **dedicated VRAM** is the key advantage over shared-memory sy
 |-----------|------|----------|
 | WSL2 + Ubuntu | ~3 GB | Windows C: drive (VHDX) |
 | Ollama binary | ~200 MB | Inside WSL2 |
-| Qwen3.5 9B (Q4_K_M) | ~5.5 GB | `~/.ollama/models` in WSL2 |
+| Qwen3.5 4B (Q4_K_M) | ~2.5 GB | `~/.ollama/models` in WSL2 |
 | Qwen2.5 Coder 7B (Q4_K_M) | ~4.2 GB | `~/.ollama/models` in WSL2 |
 | nomic-embed-text | ~280 MB | `~/.ollama/models` in WSL2 |
 | Node.js + OpenClaw | ~600 MB | Inside WSL2 |
 | Working overhead | ~2 GB | Inside WSL2 |
-| **WSL2 total** | **~16 GB** | |
+| **WSL2 total** | **~13 GB** | |
 | | | |
 | LM Studio | ~500 MB | Windows (app) |
 | LM Studio models | varies | `C:\Users\<you>\.lmstudio\models\` |
@@ -246,7 +246,7 @@ The MSI's 6GB VRAM is dedicated -- models load entirely into VRAM with no sharin
 # WSL2 / Ubuntu terminal
 # General agentic tasks, 5.5GB at Q4_K_M, right at the 6GB limit
 # Keep context under 8K to avoid VRAM pressure
-ollama pull qwen3.5:9b
+ollama pull qwen3.5:4b
 
 # Coding sessions, 4.2GB at Q4_K_M, fits with 1.8GB headroom
 ollama pull qwen2.5-coder:7b
@@ -261,7 +261,7 @@ Test that the RTX 4050 is actually doing the work:
 
 ```bash
 # WSL2 / Ubuntu terminal
-ollama run qwen3.5:9b "say hi in one sentence"
+ollama run qwen3.5:4b "say hi in one sentence"
 ```
 
 While it's responding, open another Ubuntu terminal and run:
@@ -277,16 +277,11 @@ If it says `100% CPU`, jump to the Troubleshooting section.
 
 ## 3.3 Model Notes for 6GB VRAM
 
-**Qwen3.5 9B** sits right at the 6GB ceiling at Q4_K_M. This means:
+**Qwen3.5 4B** fits comfortably at ~2.5GB -- less than half the 6GB ceiling. This gives you ~3.5GB of headroom for the KV cache, meaning long contexts are handled cleanly without overflow. The hybrid Gated DeltaNet architecture also keeps KV cache growth small even at 262K context. This is your default agentic model.
 
-- Short to medium contexts (under 8K tokens) run fully in VRAM
-- Longer contexts cause KV cache to overflow into system RAM -- you'll see tok/s drop
-- `OLLAMA_FLASH_ATTENTION=1` helps push this ceiling up but doesn't eliminate it
-- For agentic tasks (shorter tool-call chains), this is a non-issue
+**Qwen2.5 Coder 7B** at ~4.2GB fits with ~1.8GB headroom. Slightly tighter than the 4B but still fully in VRAM. Purpose-tuned for code -- better at completion, refactoring, and multi-file edits than the general 4B.
 
-**Qwen2.5 Coder 7B** at ~4.2GB fits comfortably with ~1.8GB headroom. This is your cleaner model for sustained coding sessions where context grows.
-
-Practical rule: use Qwen2.5 Coder for anything involving files or long code context, Qwen3.5 9B for shorter agentic tasks and general reasoning.
+Practical rule: use Qwen3.5 4B as your OpenClaw default for agentic tasks and general reasoning. Switch to Qwen2.5 Coder 7B for dedicated coding sessions.
 
 ---
 
@@ -311,7 +306,7 @@ LM Studio can use Ollama as a backend instead of running its own inference engin
 
 Because `localhostForwarding=true` is in your `.wslconfig`, `localhost:11434` on Windows transparently reaches Ollama running inside WSL2.
 
-> **Verify the connection:** In LM Studio, check that your Ollama models (Qwen3.5 9B, Qwen2.5 Coder 7B) appear in the model list. If they don't, make sure Ollama is running in WSL2 (`wsl` in PowerShell, then `ollama serve &`).
+> **Verify the connection:** In LM Studio, check that your Ollama models (Qwen3.5 4B, Qwen2.5 Coder 7B) appear in the model list. If they don't, make sure Ollama is running in WSL2 (`wsl` in PowerShell, then `ollama serve &`).
 
 ## 4.3 LM Studio's Independent Model Store
 
@@ -382,7 +377,7 @@ Model provider details:
 - **Provider name:** `ollama-local`
 - **Base URL:** `http://localhost:11434/v1`
 - **API key:** `ollama` (any string -- Ollama ignores it)
-- **Model ID:** `qwen3.5:9b`
+- **Model ID:** `qwen3.5:4b`
 - **Context window:** `32768`
 
 **Save the access token printed at the end** -- you need it to log into the OpenClaw Web UI.
@@ -394,7 +389,7 @@ Model provider details:
 openclaw models list
 ```
 
-Both Qwen3.5 9B and Qwen2.5 Coder 7B should appear.
+Both Qwen3.5 4B and Qwen2.5 Coder 7B should appear.
 
 ## 5.4 Switch Models
 
@@ -404,7 +399,7 @@ Both Qwen3.5 9B and Qwen2.5 Coder 7B should appear.
 openclaw models set ollama-local/qwen2.5-coder:7b
 
 # Switch back to general agentic default
-openclaw models set ollama-local/qwen3.5:9b
+openclaw models set ollama-local/qwen3.5:4b
 ```
 
 ## 5.5 Open the Web UI
@@ -685,14 +680,13 @@ At full VRAM utilization with CUDA:
 | Model | Tok/s |
 |-------|-------|
 | Qwen2.5 Coder 7B Q4_K_M | 50-70 tok/s |
-| Qwen3.5 9B Q4_K_M (short context) | 40-55 tok/s |
-| Qwen3.5 9B Q4_K_M (16K+ context) | 20-35 tok/s (KV cache pressure) |
+| Qwen3.5 4B Q4_K_M | 80-110 tok/s |
 
 These are significantly faster than the ROG Ally's AMD iGPU. Discrete CUDA with 6GB dedicated VRAM is a different league.
 
-### Why is Qwen3.5 9B slower at long contexts?
+### Why is Qwen3.5 4B fast even at long contexts?
 
-The KV cache grows linearly with context length. At 32K tokens, an 8B-class model needs ~2GB of KV cache alone on top of the ~5.5GB model weights. That overflows the 6GB VRAM ceiling and starts spilling into system RAM over PCIe -- which is 5-20x slower. Stick to Qwen2.5 Coder 7B for anything involving long file context.
+The Qwen3.5 4B uses a hybrid Gated DeltaNet architecture where 75% of layers use linear attention (state space model) rather than standard softmax attention. This means the KV cache grows much more slowly than a standard transformer -- context length has much less impact on memory and speed than it does on larger standard-architecture models. This is one of the main reasons to prefer it as the OpenClaw default over a larger model.
 
 ### Can I run other models in LM Studio at the same time as OpenClaw?
 
@@ -739,7 +733,7 @@ openclaw models set ollama-local/<model-name>
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Models (re-pulling fetches updates)
-ollama pull qwen3.5:9b
+ollama pull qwen3.5:4b
 ollama pull qwen2.5-coder:7b
 
 # OpenClaw
@@ -883,7 +877,7 @@ If it returns models but OpenClaw still fails, check your config has `"baseUrl":
 
 ### Tool calls fail silently
 
-Reasoning models inject `<think>` tokens that break OpenClaw's tool-call parser. Qwen3.5 9B and Qwen2.5 Coder 7B both have reasoning modes that can be triggered. If tool calls are failing, switch to Qwen2.5 Coder 7B which has more predictable tool-call formatting:
+Reasoning models inject `<think>` tokens that break OpenClaw's tool-call parser. Qwen3.5 4B and Qwen2.5 Coder 7B both have reasoning modes that can be triggered. If tool calls are failing, switch to Qwen2.5 Coder 7B which has more predictable tool-call formatting:
 
 ```bash
 # WSL2 / Ubuntu terminal
